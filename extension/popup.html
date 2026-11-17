@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --text:#e8eaf0; --muted:#8b93a7;
+          --blue:#4c8dff; --green:#3fb37f; --red:#e5596b; }
+  * { box-sizing:border-box; }
+  body { margin:0; width:380px; font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--line); }
+  header b { font-size:14px; flex:1; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--muted); }
+  .dot.on { background:var(--green); } .dot.off { background:var(--red); }
+  #status { color:var(--muted); font-size:12px; }
+  .bar { display:flex; gap:10px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); color:var(--muted); }
+  select { background:#0c0e12; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:4px 6px; }
+  label { display:flex; gap:5px; align-items:center; }
+  ul { list-style:none; margin:0; padding:6px 8px; max-height:300px; overflow:auto; }
+  li { display:flex; gap:8px; align-items:center; padding:8px 6px; border-radius:8px; }
+  li:hover { background:var(--card); }
+  li.best { background:rgba(76,141,255,.08); }
+  .kind { font-size:10px; font-weight:700; padding:2px 6px; border-radius:5px; background:#262b36; color:var(--blue); min-width:42px; text-align:center; }
+  .info { flex:1; min-width:0; }
+  .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .meta { color:var(--muted); font-size:11px; }
+  button { background:#262b36; color:var(--text); border:1px solid var(--line); border-radius:7px; padding:6px 10px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:#3c4454; }
+  button.primary { background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600; }
+  .empty { color:var(--muted); text-align:center; padding:22px 16px; }
+  footer { display:flex; gap:8px; padding:10px 14px; border-top:1px solid var(--line); }
+  footer button { flex:1; }
+  #msg { padding:0 14px 10px; font-size:12px; min-height:4px; }
+  #subs { padding:0 14px 8px; font-size:12px; color:var(--muted); }
+  #subs b { color:var(--green); font-weight:600; }
+  #msg.ok { color:var(--green); } #msg.err { color:var(--red); }
+</style>
+</head>
+<body>
+  <header><span class="dot" id="dot"></span><b>Video İndirici</b><span id="status">kontrol ediliyor…</span></header>
+  <div class="bar">
+    <label>Kalite
+      <select id="quality">
+        <option value="">En iyi</option><option value="1080">1080p</option><option value="720">720p</option>
+        <option value="480">480p</option><option value="360">360p</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="audio"> Sadece ses (MP3)</label>
+  </div>
+  <ul id="list"></ul>
+  <div id="subs"></div>
+  <div id="msg"></div>
+  <footer>
+    <button id="page" title="YouTube, ok.ru gibi yt-dlp'nin tanıdığı sitelerde en iyi sonuç">Sayfayı yt-dlp ile indir</button>
+    <button id="open">İndirmeler ↗</button>
+  </footer>
+<script src="popup.js"></script>
+</body>
+</html>

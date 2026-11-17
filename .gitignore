@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+# indirme sırasında oluşan geçici dosyalar
+.gecici/
+*.part
+*.ytdl
+cookies.txt

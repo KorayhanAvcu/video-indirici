@@ -1,0 +1,4 @@
+# Video İndirici — Python bağımlılıkları
+#   python -m pip install -r requirements.txt
+yt-dlp[default,curl-cffi]   # indirme motoru (+ Cloudflare korumalı siteler için tarayıcı taklidi)
+flask                       # yerel web arayüzü ve eklentinin konuştuğu API
