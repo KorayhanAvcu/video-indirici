@@ -5,6 +5,8 @@ IDM tarzı video indirici. Tarayıcı eklentisi sayfada oynayan videoyu ve altya
 ```
 video-indirici/
 ├─ app.py             İndirme motoru + web arayüzü (http://127.0.0.1:5000)
+├─ kurulum.bat        Windows: gerekenlerin hepsini tek tıkla kurar
+├─ baslat.bat         Windows: programı açar
 ├─ teshis.py          Bağlantı sorunlarını bulan teşhis betiği
 ├─ requirements.txt   Python bağımlılıkları
 ├─ extension/         Chrome / Edge / Firefox eklentisi
@@ -17,7 +19,29 @@ video-indirici/
 └─ tests/             Otomatik testler
 ```
 
-## Kurulum
+## İndirilmesi gerekenler
+
+| Ne | Zorunlu mu | İndirme bağlantısı |
+|---|---|---|
+| **Bu proje** | Evet | GitHub'da **Code → Download ZIP** ya da `git clone https://github.com/KorayhanAvcu/video-indirici.git` |
+| **Python 3.10+** | Evet | https://www.python.org/downloads/ |
+| **ffmpeg** (ffprobe dahil) | Önerilir | https://www.gyan.dev/ffmpeg/builds/ (*ffmpeg-release-essentials.zip*) |
+| **Google Chrome / Microsoft Edge** ya da **Firefox 128+** | Evet (eklenti için) | https://www.google.com/chrome/ · https://www.mozilla.org/firefox/ |
+| Python paketleri: **yt-dlp, curl_cffi, flask** | Evet | Elle indirilmez, `requirements.txt` ile kurulur (aşağıda) |
+| Git | Hayır (ZIP yeterli) | https://git-scm.com/download/win |
+| Node.js 18+ | Hayır (sadece eklenti testleri) | https://nodejs.org/ |
+
+## Hızlı kurulum (Windows)
+
+1. Projeyi indir ve ZIP'i bir klasöre çıkar.
+2. Klasördeki **`kurulum.bat`** dosyasına çift tıkla. Eksik olan Python, Python paketleri ve ffmpeg'i `winget` ile kendisi kurar.
+   Python'u yeni kurduysa pencereyi kapatıp `kurulum.bat`'ı bir kez daha çalıştırman ister.
+3. **`baslat.bat`** ile programı aç.
+4. Eklentiyi kur (aşağıda 4. adım).
+
+`winget` yoksa (eski Windows 10) yukarıdaki tablodaki bağlantılardan elle indir, sonra aşağıdaki adımları izle.
+
+## Elle kurulum
 
 ### 1. Gerekli programlar
 
