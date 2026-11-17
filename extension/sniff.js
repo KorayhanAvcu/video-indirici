@@ -9,6 +9,14 @@
   const TAG = "__video_indirici_sniff__";
   const seen = new Set();
   const dec = new TextDecoder();
+  const MAX_SUB = 2 * 1024 * 1024; // altyazı içeriği en fazla 2 MB
+
+  // Ham baytları base64 yap: Windows-1254 Türkçe SRT'ler bozulmadan app.py'ye ulaşsın
+  function toB64(bytes) {
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
 
   function kindOf(head) {
     const t = String(head || "").replace(/^\uFEFF/, "").trimStart();
@@ -19,13 +27,31 @@
     return "";
   }
 
-  function report(url, head) {
-    if (!url || seen.has(url) || !/^https?:/i.test(url)) return;
-    const kind = kindOf(head);
-    if (!kind) return;
+  // content: altyazıysa tarayıcının aldığı içeriğin kendisi ({b64} ham bayt ya da {text}).
+  // Böylece süreli / tek kullanımlık / korumalı altyazı linkleri tekrar indirilmek zorunda kalmaz.
+  function report(url, kind, content) {
+    if (!url || !kind || seen.has(url) || !/^https?:/i.test(url)) return;
     seen.add(url);
     // Aynı çerçevedeki relay.js alır ve eklentiye iletir
-    window.postMessage({ [TAG]: true, kind, url }, "*");
+    window.postMessage({ [TAG]: true, kind, url, ...(content || {}) }, "*");
+  }
+
+  async function readAll(reader, first, done) {
+    const parts = [first];
+    let size = first.length;
+    while (!done) {
+      const r = await reader.read();
+      done = r.done;
+      if (r.value) {
+        parts.push(r.value);
+        size += r.value.length;
+        if (size > MAX_SUB) return null;
+      }
+    }
+    const all = new Uint8Array(size);
+    let off = 0;
+    for (const p of parts) { all.set(p, off); off += p.length; }
+    return all;
   }
 
   // ---- fetch
@@ -39,9 +65,15 @@
           const ct = (res.headers.get("content-type") || "").toLowerCase();
           if (ct.startsWith("video/") || ct.startsWith("audio/")) return; // gerçek medya, liste değil
           const reader = res.clone().body.getReader();
-          reader.read().then(({ value }) => {
+          reader.read().then(async ({ value, done }) => {
+            const kind = value ? kindOf(dec.decode(value.subarray(0, 64))) : "";
+            if (!kind || kind === "hls" || seen.has(res.url)) {
+              reader.cancel().catch(() => {});
+              return report(res.url, kind);
+            }
+            const all = await readAll(reader, value, done); // altyazı: tamamını oku
             reader.cancel().catch(() => {});
-            if (value) report(res.url, dec.decode(value.subarray(0, 64)));
+            report(res.url, kind, all ? { b64: toB64(all) } : null);
           }).catch(() => {});
         } catch {}
       }).catch(() => {});
@@ -64,9 +96,14 @@
         try {
           const url = this.responseURL || this.__viUrl;
           const rt = this.responseType;
-          if (rt === "" || rt === "text") report(url, String(this.responseText || "").slice(0, 64));
-          else if (rt === "arraybuffer" && this.response) {
-            report(url, dec.decode(new Uint8Array(this.response, 0, Math.min(64, this.response.byteLength))));
+          if (rt === "" || rt === "text") {
+            const text = String(this.responseText || "");
+            const kind = kindOf(text.slice(0, 64));
+            report(url, kind, kind && kind !== "hls" && text.length <= MAX_SUB ? { text } : null);
+          } else if (rt === "arraybuffer" && this.response) {
+            const bytes = new Uint8Array(this.response);
+            const kind = kindOf(dec.decode(bytes.subarray(0, 64)));
+            report(url, kind, kind && kind !== "hls" && bytes.length <= MAX_SUB ? { b64: toB64(bytes) } : null);
           }
         } catch {}
       });

@@ -126,7 +126,9 @@ Video listede görünmüyorsa videoyu birkaç saniye oynat. Eklenti videoyu anca
 - Altyazılar videonun **içine gömülür** (oynatıcıda açıp kapatılabilir, dil etiketli) ve yanına `Video Adı.tr.vtt` olarak da kaydedilir.
 - Akışın kendi altyazı kanalları (HLS altyazı kanalı, YouTube vb.) Türkçe ve İngilizce için indirilir.
 - Windows-1254 kodlu Türkçe SRT'ler UTF-8'e çevrilir; ş, ğ, ı bozulmaz.
-- Altyazı inmezse video yine iner, arayüzde not düşülür.
+- Eklenti, tarayıcının zaten indirdiği altyazının **içeriğini** gönderir; app.py linki tekrar istemez. Bu yüzden süreli, tek kullanımlık ya da korumalı altyazı linkleri de sorun olmaz.
+- İçerik alınamazsa app.py altyazıyı tarayıcının başlıklarıyla ve **videodan önce** indirir (sırada beklerken link ölmesin).
+- Altyazı inmezse video yine iner; arayüzde hangi altyazının neden inmediği yazar (ör. `TR: HTTP 403`).
 - Görüntüye basılı (hardsub) altyazılar zaten videonun parçasıdır.
 
 ## Sorun giderme
@@ -136,6 +138,7 @@ Video listede görünmüyorsa videoyu birkaç saniye oynat. Eklenti videoyu anca
 | `HTTP Error 403 caused by Cloudflare anti-bot challenge` | `curl_cffi` kurulu değil. Kurulum 2. adımı uygula, açılış satırında `acik` görmelisin. |
 | `curl: (28) Connection timed out` | Sunucuya bağlanılamıyor. `python teshis.py` çalıştır: DNS engeli, IPv6 ya da vekil (proxy) sorununu gösterir. |
 | `Sunucu video yerine şunu döndü: "security error"` | Link süreli ya da tek kullanımlık. Sayfayı yenile, videoyu oynat, eklentiden hemen tekrar gönder. |
+| `Altyazı bulundu ama indirilemedi — TR: HTTP 403` | Altyazı sunucusu isteği reddetti. Sayfayı yenile, videoyu altyazı açıkken birkaç saniye oynat, eklentiden tekrar gönder (eklenti içeriği oynatma sırasında yakalar). `zaman aşımı` yazıyorsa `python teshis.py`. `altyazı değil: ...` yazıyorsa sunucu altyazı yerine hata sayfası döndürmüştür. |
 | Video yakalanmıyor | Videoyu birkaç saniye oynat; olmazsa sayfayı yenile. Eklentiyi güncellediysen ↻ düğmesine bas. |
 | `app.py çalışmıyor` (eklentide) | Terminalde `python app.py` açık olmalı. |
 

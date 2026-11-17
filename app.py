@@ -19,6 +19,7 @@ Kurulum (bir kere):
     - Tarayıcı eklentisi (extension/ klasörü) ile her siteden "⬇ İndir"
 """
 
+import base64
 import os
 import re
 import shutil
@@ -145,8 +146,23 @@ def clean_subs(raw) -> list[dict]:
         if not ref.startswith(("http://", "https://")) or any(ch in ref for ch in "\r\n"):
             ref = ""
         seen.add(url)
-        out.append({"url": url, "format": fmt, "referer": ref,
-                    "lang": re.sub(r"[^a-z]", "", str(s.get("lang") or "").lower())[:8]})
+        sub = {"url": url, "format": fmt, "referer": ref,
+               "lang": re.sub(r"[^a-z]", "", str(s.get("lang") or "").lower())[:8],
+               "headers": clean_headers(s.get("headers"))}
+        # Eklentinin tarayıcıdan aldığı içerik: varsa tekrar indirmeye gerek yok
+        content = None
+        if isinstance(s.get("b64"), str):
+            try:
+                content = base64.b64decode(s["b64"], validate=True)
+            except ValueError:
+                content = None
+        elif isinstance(s.get("text"), str):
+            content = s["text"].encode("utf-8")
+        if content is not None and len(content) <= MAX_SUB_BYTES:
+            sub["content"] = content
+        if s.get("browser_error"):
+            sub["browser_error"] = str(s["browser_error"])[:60]
+        out.append(sub)
     return out
 
 
@@ -184,21 +200,57 @@ def sub_path(video: Path, lang: str, fmt: str) -> Path:
     return path
 
 
-def fetch_sub(ydl, sub: dict) -> str | None:
-    """Altyazıyı videoyla aynı çerezler/User-Agent ile (gerekirse tarayıcı taklidiyle) indirir."""
+def fetch_sub(ydl, sub: dict) -> tuple[str | None, str]:
+    """Altyazıyı tarayıcının gönderdiği başlıklar ve videoyla aynı çerezlerle indirir (önce normal,
+    olmazsa tarayıcı taklidiyle). (metin, hata nedeni) döndürür."""
     from yt_dlp.networking import Request
-    headers = {"Referer": sub["referer"]} if sub.get("referer") else {}
-    attempts = [{"impersonate": _impersonate_target()}] if IMPERSONATE_OK else []
-    attempts.append({})
+    headers = dict(sub.get("headers") or {})
+    if sub.get("referer"):
+        headers["Referer"] = sub["referer"]
+    attempts = [{}]
+    if IMPERSONATE_OK:
+        attempts.append({"impersonate": _impersonate_target()})
+    reason = "bilinmeyen hata"
     for ext in attempts:
         try:
             with ydl.urlopen(Request(sub["url"], headers=headers, extensions=ext)) as r:
                 data = r.read(MAX_SUB_BYTES + 1)
-        except Exception:
+        except Exception as e:
+            status = getattr(e, "status", None) or getattr(getattr(e, "response", None), "status", None)
+            reason = f"HTTP {status}" if status else ("zaman aşımı" if "timed out" in str(e).lower()
+                                                      else type(e).__name__)
             continue
-        if len(data) <= MAX_SUB_BYTES:
-            return decode_sub(data)
-    return None
+        if len(data) > MAX_SUB_BYTES:
+            return None, "dosya çok büyük"
+        text = decode_sub(data)
+        if text is not None:
+            return text, ""
+        reason = "altyazı değil: " + junk_preview(data)
+    return None, reason
+
+
+def junk_preview(data: bytes) -> str:
+    text = data[:200].decode("utf-8", "replace")
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()[:40] or "(boş)"
+
+
+def prefetch_subs(ydl, job: dict) -> None:
+    """Altyazıları videodan ÖNCE hazırla: süreli linkler, sırada beklerken ya da uzun video inerken
+    ölmesin. Eklentinin gönderdiği içerik varsa sadece doğrulanır, ağa çıkılmaz. Bir kez yapılır."""
+    if job["options"].get("audio"):
+        return
+    for sub in job.get("subs") or []:
+        if job["cancel"] or "text" in sub:
+            continue
+        if sub.get("content") is not None:
+            text = decode_sub(sub["content"])
+            if text is not None:
+                sub["text"], sub["error"] = text, ""
+                continue
+        text, reason = fetch_sub(ydl, sub)
+        if text is None and sub.get("browser_error"):
+            reason = f"{reason}; tarayıcıda da: {sub['browser_error']}"
+        sub["text"], sub["error"] = text, reason
 
 
 def embed_subs(video: Path, subs: list[tuple[Path, str]]) -> bool:
@@ -249,24 +301,26 @@ def save_captured_subs(ydl, job: dict, video: Path | None) -> str:
     subs = job.get("subs") or []
     if not subs or job["options"].get("audio") or not video or not video.exists():
         return ""
-    saved = []
+    prefetch_subs(ydl, job)  # normalde videodan önce yapılmıştır; değilse şimdi
+    saved, failed = [], []
     for sub in subs:
         if job["cancel"]:
             break
-        text = fetch_sub(ydl, sub)
-        if text is None:
+        if sub.get("text") is None:
+            failed.append(f"{(sub['lang'] or '?').upper()}: {sub.get('error') or 'indirilemedi'}")
             continue
         path = sub_path(video, sub["lang"], sub["format"])
-        path.write_text(text, encoding="utf-8")
+        path.write_text(sub["text"], encoding="utf-8")
         saved.append((path, sub["lang"]))
         with lock:
             job["files"].append(str(path))
+    fail_note = f" (indirilemeyen — {'; '.join(failed)})" if failed else ""
     if not saved:
-        return "Altyazı bulundu ama indirilemedi"
+        return f"Altyazı bulundu ama indirilemedi — {'; '.join(failed)}"
     langs = ", ".join(sorted({(l or "?").upper() for _, l in saved}))
     if embed_subs(video, saved):
-        return f"Altyazı ({langs}) videoya gömüldü ve yanına da kaydedildi"
-    return f"Altyazı ({langs}) videonun yanına kaydedildi"
+        return f"Altyazı ({langs}) videoya gömüldü ve yanına da kaydedildi{fail_note}"
+    return f"Altyazı ({langs}) videonun yanına kaydedildi{fail_note}"
 
 
 def safe_name(title) -> str:
@@ -439,6 +493,10 @@ def run_job(job: dict):
 def _download(job: dict, stream_subs: bool, impersonate: bool = False) -> tuple[dict | None, str]:
     note = ""
     with YoutubeDL(build_opts(job, stream_subs=stream_subs, impersonate=impersonate)) as ydl:
+        try:
+            prefetch_subs(ydl, job)
+        except Exception:
+            pass  # altyazı yüzünden video beklemesin; sonra tekrar denenir
         info = ydl.extract_info(job["url"], download=True)
         # Son dosya yolunu bul (postprocessor hook'u kaçırırsa diye). requested_downloads, dosyalar
         # geçici klasörden asıl klasöre taşındıktan sonraki yolu verir.

@@ -126,7 +126,13 @@ chrome.webRequest.onHeadersReceived.addListener(d => {
 
 async function addSub(tabId, sub) {
   const t = await getTab(tabId);
-  if (t.subs.some(s => s.url === sub.url)) return;
+  const old = t.subs.find(s => s.url === sub.url);
+  if (old) {
+    // Aynı altyazı önce ağdan (başlıklarıyla), sonra sayfadan (içeriğiyle) görülebilir: birleştir
+    if (sub.b64 || sub.text) Object.assign(old, { b64: sub.b64, text: sub.text });
+    persist(tabId);
+    return;
+  }
   t.subs.push(sub);
   if (t.subs.length > MAX_SUBS) t.subs.shift();
   persist(tabId);
@@ -230,14 +236,44 @@ async function subsFor(tab, videoCookies) {
   const t = await getTab(tab.id);
   const out = [];
   for (const s of pickSubs(t.subs)) {
-    const referer = (s.headers && s.headers.Referer) || s.frameUrl || tab.url;
+    const headers = { ...(s.headers || {}) };
+    const referer = headers.Referer || s.frameUrl || tab.url;
     // Altyazı başka bir alan adındaysa onun çerezlerini de ekle
     for (const c of await cookiesFor(s.url)) {
       if (!videoCookies.some(v => v.domain === c.domain && v.name === c.name && v.path === c.path)) videoCookies.push(c);
     }
-    out.push({ url: s.url, format: s.format, lang: s.lang || "", referer });
+    const sub = { url: s.url, format: s.format, lang: s.lang || "", referer, headers };
+    // İçerik: 1) sayfanın zaten aldığı (sniff.js)  2) yoksa altyazının yüklendiği çerçeveden şimdi çek.
+    // app.py ancak ikisi de olmazsa kendisi indirmeyi dener.
+    if (s.b64) sub.b64 = s.b64;
+    else if (s.text) sub.text = s.text;
+    else {
+      const got = await frameFetchSub(tab.id, s);
+      if (got.b64) sub.b64 = got.b64;
+      else if (got.error) sub.browser_error = got.error;
+    }
+    out.push(sub);
   }
   return out;
+}
+
+async function frameFetchSub(tabId, s) {
+  // Tarayıcının kendisi eklediği başlıklar (Sec-*, User-Agent, Referer...) fetch ile elle verilemez
+  const own = {};
+  for (const [k, v] of Object.entries(s.headers || {})) {
+    if (!/^(sec-|user-agent$|referer$|origin$|accept-language$)/i.test(k)) own[k] = v;
+  }
+  const timeout = new Promise(r => setTimeout(() => r({ ok: false, error: "zaman aşımı" }), 8000));
+  try {
+    const res = await Promise.race([
+      chrome.tabs.sendMessage(tabId, { type: "fetchSub", url: s.url, headers: own }, { frameId: s.frameId || 0 }),
+      timeout,
+    ]);
+    if (res && res.ok && sniffText(atob(res.b64.slice(0, 120)).replace(/^\xEF\xBB\xBF/, ""))) return { b64: res.b64 };
+    return { error: (res && res.error) || "altyazı değil" };
+  } catch (e) {
+    return { error: "çerçeveye ulaşılamadı" };
+  }
 }
 
 async function sendPage(tab) {
@@ -270,7 +306,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         headers: urlHeaders.get(msg.url) || { Referer: sender.url || "" }, time: Date.now() };
       if (msg.kind === "hls") await addItem(sender.tab.id, { ...base, kind: "hls", sniffed: true });
       else if (["vtt", "srt", "ass"].includes(msg.kind)) {
-        await addSub(sender.tab.id, { ...base, format: msg.kind, lang: guessLang(msg.url) });
+        const content = msg.b64 ? { b64: msg.b64 } : msg.text ? { text: msg.text } : {};
+        await addSub(sender.tab.id, { ...base, ...content, format: msg.kind, lang: guessLang(msg.url) });
       }
       return { ok: true };
     }

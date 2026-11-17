@@ -39,8 +39,8 @@ def test_clean_subs_validates(mod):
         "çöp",
     ])
     assert out == [
-        {"url": "https://c/tr.vtt", "format": "vtt", "referer": "https://site/izle", "lang": "tr"},
-        {"url": "https://c/en.srt", "format": "srt", "referer": "", "lang": "en"},
+        {"url": "https://c/tr.vtt", "format": "vtt", "referer": "https://site/izle", "lang": "tr", "headers": {}},
+        {"url": "https://c/en.srt", "format": "srt", "referer": "", "lang": "en", "headers": {}},
     ]
     assert mod.clean_subs(None) == []
 
@@ -82,7 +82,8 @@ def test_ext_add_stores_subtitles(mod):
         "subtitles": [{"url": "https://a.com/tr.vtt", "format": "vtt", "lang": "tr", "referer": "https://a.com/izle"}],
     })
     job = mod.jobs[r.get_json()["id"]]
-    assert job["subs"] == [{"url": "https://a.com/tr.vtt", "format": "vtt", "referer": "https://a.com/izle", "lang": "tr"}]
+    assert job["subs"] == [{"url": "https://a.com/tr.vtt", "format": "vtt", "referer": "https://a.com/izle", "lang": "tr",
+                            "headers": {}}]
 
 
 # ------------------------------------------------------------------ uçtan uca
@@ -189,7 +190,7 @@ def test_e2e_sidecar_without_referer_is_skipped_but_video_ok(mod, site):
     assert job["status"] == "done"
     assert any(p.endswith(".mp4") for p in job["files"])
     assert not any(p.endswith(".vtt") for p in job["files"])
-    assert job["message"] == "Altyazı bulundu ama indirilemedi"
+    assert job["message"] == "Altyazı bulundu ama indirilemedi — TR: HTTP 403"  # neden de yazılır
 
 
 @needs_ffmpeg
@@ -343,3 +344,94 @@ def test_subtitle_failure_falls_back(mod, monkeypatch):
     mod._run_job(mod.jobs[jid])
     assert calls == [True, False]
     assert "altyazısız" in mod.jobs[jid]["message"]
+
+
+# ------------------------------------------------------------------ "altyazı bulundu ama indirilemedi" çözümleri
+
+def test_clean_subs_accepts_browser_content(mod):
+    import base64
+    srt = "1\r\n00:00:01,000 --> 00:00:02,000\r\nŞimdi!\r\n".encode("cp1254")
+    out = mod.clean_subs([
+        {"url": "https://c/a.srt", "format": "srt", "b64": base64.b64encode(srt).decode(),
+         "headers": {"X-Requested-With": "XMLHttpRequest", "Cookie": "x", "Bad\nName": "y"}},
+        {"url": "https://c/b.vtt", "format": "vtt", "text": "WEBVTT\n\n00:00.000 --> 00:01.000\nSelam\n"},
+        {"url": "https://c/c.vtt", "format": "vtt", "b64": "bu-base64-degil!!"},
+        {"url": "https://c/d.vtt", "format": "vtt", "browser_error": "HTTP 403"},
+    ])
+    assert out[0]["content"] == srt
+    assert out[0]["headers"] == {"X-Requested-With": "XMLHttpRequest"}  # Cookie ve bozuk ad elenir
+    assert out[1]["content"].startswith(b"WEBVTT")
+    assert "content" not in out[2]
+    assert out[3]["browser_error"] == "HTTP 403"
+
+
+@pytest.fixture(scope="module")
+def strict_sub_site(site):
+    """Zor altyazı sunucusu: X-Requested-With ister ve her linki TEK SEFER verir. Video yerel siteden
+    aktarılır. Hangi isteğin ne sırayla geldiği kaydedilir."""
+    import urllib.request
+    served, log = set(), []
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def send(self, code, body, ctype="text/plain"):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            log.append(self.path)
+            if self.path.startswith("/once/"):
+                if self.headers.get("X-Requested-With") != "XMLHttpRequest" or self.path in served:
+                    return self.send(403, b"Forbidden")
+                served.add(self.path)
+                return self.send(200, VTT_TR.encode(), "text/vtt")
+            self.send(200, opener.open(site + self.path).read(), "application/octet-stream")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{srv.server_address[1]}", served, log
+    srv.shutdown()
+
+
+@needs_ffmpeg
+def test_e2e_one_time_subtitle_uses_content_from_browser(mod, strict_sub_site):
+    import base64
+    base, served, _ = strict_sub_site
+    served.add("/once/zaten-kullanildi.vtt")  # tarayıcı linki çoktan harcadı: tekrar istenirse 403
+    job = run(mod, {"url": f"{base}/video/index.m3u8", "title": "Tek kullanımlık",
+                    "subtitles": [{"url": f"{base}/once/zaten-kullanildi.vtt", "format": "vtt", "lang": "tr",
+                                   "b64": base64.b64encode(VTT_TR.encode()).decode()}]})
+    assert job["status"] == "done", job["message"]
+    vtt = next(Path(p) for p in job["files"] if p.endswith(".tr.vtt"))
+    assert "düello" in vtt.read_text(encoding="utf-8")
+    assert "gömüldü" in job["message"]
+
+
+@needs_ffmpeg
+def test_e2e_subtitle_fetched_with_browser_headers_before_video(mod, strict_sub_site):
+    base, _, log = strict_sub_site
+    log.clear()
+    job = run(mod, {"url": f"{base}/video/index.m3u8", "title": "Başlıklı",
+                    "subtitles": [{"url": f"{base}/once/yeni.vtt", "format": "vtt", "lang": "tr",
+                                   "headers": {"X-Requested-With": "XMLHttpRequest"}}]})
+    assert job["status"] == "done", job["message"]
+    assert any(p.endswith(".tr.vtt") for p in job["files"])
+    # Altyazı, video parçalarından ÖNCE istendi (süreli linkler sırada beklerken ölmesin)
+    first_segment = next(i for i, path in enumerate(log) if path.endswith(".ts"))
+    assert log.index("/once/yeni.vtt") < first_segment
+
+
+@needs_ffmpeg
+def test_e2e_failure_reason_is_shown(mod, strict_sub_site):
+    base, _, _ = strict_sub_site
+    job = run(mod, {"url": f"{base}/video/index.m3u8", "title": "Nedenli",
+                    "subtitles": [{"url": f"{base}/once/baslıksız.vtt", "format": "vtt", "lang": "tr",
+                                   "browser_error": "HTTP 403"}]})
+    assert job["status"] == "done"
+    assert job["message"] == "Altyazı bulundu ama indirilemedi — TR: HTTP 403; tarayıcıda da: HTTP 403"

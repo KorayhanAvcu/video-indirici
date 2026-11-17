@@ -5,11 +5,27 @@
 
   // Arka plan, korumalı m3u8 listelerini sayfanın kendi bağlamından okutur (çerez + Referer otomatik)
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-    if (msg.type !== "fetchText") return;
-    fetch(msg.url, { credentials: "include" })
-      .then(async r => reply(r.ok ? { ok: true, text: await r.text() } : { ok: false }))
-      .catch(() => reply({ ok: false }));
-    return true;
+    if (msg.type === "fetchText") {
+      fetch(msg.url, { credentials: "include" })
+        .then(async r => reply(r.ok ? { ok: true, text: await r.text() } : { ok: false }))
+        .catch(() => reply({ ok: false }));
+      return true;
+    }
+    if (msg.type === "fetchSub") {
+      // Altyazıyı videonun oynadığı çerçevenin içinden, sayfanın çerezleri ve Referer'ıyla çek.
+      // Ham bayt (base64) döner: Türkçe Windows-1254 kodlaması bozulmaz.
+      fetch(msg.url, { credentials: "include", headers: msg.headers || {} })
+        .then(async r => {
+          if (!r.ok) return reply({ ok: false, error: `HTTP ${r.status}` });
+          const bytes = new Uint8Array(await r.arrayBuffer());
+          if (bytes.length > 2 * 1024 * 1024) return reply({ ok: false, error: "çok büyük" });
+          let bin = "";
+          for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+          reply({ ok: true, b64: btoa(bin) });
+        })
+        .catch(e => reply({ ok: false, error: String(e && e.message || e) }));
+      return true;
+    }
   });
 
   const MIN_W = 200, MIN_H = 110;
