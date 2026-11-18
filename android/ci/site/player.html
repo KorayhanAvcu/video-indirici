@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><script src="/hls.min.js"></script></head>
+<body style="margin:0">
+<video id="v" width="640" height="360" muted autoplay controls crossorigin="anonymous">
+  <track kind="subtitles" srclang="en" label="English" src="/subs/en.vtt">
+</video>
+<script>
+  const v = document.getElementById("v");
+  // Uzantısı gizlenmiş akış: .txt, Content-Type text/plain
+  const hls = new Hls({ xhrSetup: x => x.setRequestHeader("X-Requested-With", "XMLHttpRequest") });
+  hls.loadSource("/akis/liste.txt");
+  hls.attachMedia(v);
+  v.textTracks[0].mode = "showing";
+  // Uzantısız altyazı API'si: sadece içerik koklanarak anlaşılabilir
+  fetch("/api/altyazi?bolum=14&dil=tr", { headers: { "X-Requested-With": "XMLHttpRequest" } }).then(r => r.text()).then(t => {
+    const tr = document.createElement("track");
+    tr.kind = "subtitles"; tr.srclang = "tr"; tr.label = "Türkçe";
+    tr.src = URL.createObjectURL(new Blob([t], { type: "text/vtt" }));
+    v.appendChild(tr);
+  });
+</script></body></html>
