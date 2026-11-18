@@ -1,0 +1,8 @@
+run=2 sha=ed6754268d20d87b5b9fbd4cb30983af08c7a330 job=success build=success
+total 378664
+drwxr-xr-x 2 runner runner      4096 Nov 18 03:48 .
+drwxr-xr-x 8 runner runner      4096 Nov 18 03:49 ..
+-rw-r--r-- 1 runner runner  61503494 Nov 18 03:48 VideoIndirici-2.0.2-arm64-v8a.apk
+-rw-r--r-- 1 runner runner  54850360 Nov 18 03:48 VideoIndirici-2.0.2-armeabi-v7a.apk
+-rw-r--r-- 1 runner runner 206888219 Nov 18 03:48 VideoIndirici-2.0.2-universal.apk
+-rw-r--r-- 1 runner runner  64495493 Nov 18 03:48 VideoIndirici-2.0.2-x86_64.apk
