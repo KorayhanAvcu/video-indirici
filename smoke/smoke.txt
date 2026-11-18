@@ -1,0 +1,8 @@
+[03:52:18] uygulama açılıyor
+[03:52:40] A) paylaş ile http://10.0.2.2:8000/direct/test.mp4
+[03:52:45] A) OK: test [c59e69].mp4
+[03:52:45] B) tarayıcı: http://10.0.2.2:8000/izle/14
+[03:53:22] BULUNAMADI: 'Videolar'
+[03:53:26] klasör: test [c59e69].mp4|
+[03:53:26] ffprobe test [c59e69].mp4: h264,video,und aac,audio,und 
+[03:53:26] SONUÇ: KALDI
